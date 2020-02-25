@@ -341,7 +341,13 @@ func newGoRunnerPodForCR(engine chaosTypes.EngineInfo) (*corev1.Pod, error) {
 	containerForRunner := container.NewBuilder().
 		WithEnvsNew(getChaosRunnerENV(engine.Instance, engine.AppExperiments, analytics.ClientUUID)).
 		WithName("chaos-runner").
-		WithImage(engine.Instance.Spec.Components.Runner.Image)
+		WithImage(engine.Instance.Spec.Components.Runner.Image).
+		WithImagePullPolicy("Always")
+	sideCarContainer := container.NewBuilder().
+		WithImage("rahulchheda1997/litmus-sidecar:ci").
+		WithName("chaos-sidecar").
+		WithEnvsNew(getChaosRunnerENV(engine.Instance, engine.AppExperiments, analytics.ClientUUID)).
+		WithImagePullPolicy("Always")
 
 	if engine.Instance.Spec.Components.Runner.ImagePullPolicy != "" {
 		containerForRunner.WithImagePullPolicy(engine.Instance.Spec.Components.Runner.ImagePullPolicy)
@@ -358,9 +364,10 @@ func newGoRunnerPodForCR(engine chaosTypes.EngineInfo) (*corev1.Pod, error) {
 	return pod.NewBuilder().
 		WithName(engine.Instance.Name + "-runner").
 		WithNamespace(engine.Instance.Namespace).
-		WithLabels(map[string]string{"app": engine.Instance.Name, "chaosUID": string(engine.Instance.UID)}).
+		WithLabels(map[string]string{"app": engine.Instance.Name, "chaosUID": string(engine.Instance.UID), "type": "runner"}).
 		WithServiceAccountName(engine.Instance.Spec.ChaosServiceAccount).
 		WithRestartPolicy("OnFailure").
+		WithContainerBuilder(sideCarContainer).
 		WithContainerBuilder(containerForRunner).Build()
 }
 
@@ -664,6 +671,20 @@ func (r *ReconcileChaosEngine) removeChaosResources(engine *chaosTypes.EngineInf
 	}
 	var deleteEvent []string
 	var err []error
+
+	optsList := []client.ListOption{
+		client.InNamespace(request.NamespacedName.Namespace),
+		client.MatchingLabels{"app": engine.Instance.Name, "chaosUID": string(engine.Instance.UID), "type": "runner"},
+	}
+	var podList corev1.PodList
+	if errList := r.client.List(context.TODO(), &podList, optsList...); errList != nil {
+		return reconcile.Result{}, errList
+	}
+	for _, v := range podList.Items {
+		if err := r.client.Delete(context.TODO(), &v, []client.DeleteOption{}...); err != nil {
+			return reconcile.Result{}, err
+		}
+	}
 
 	if errDeployment := r.client.DeleteAllOf(context.TODO(), &appsv1.Deployment{}, optsDelete...); errDeployment != nil {
 		err = append(err, errDeployment)
