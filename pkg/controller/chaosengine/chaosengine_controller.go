@@ -672,7 +672,6 @@ func (r *ReconcileChaosEngine) removeChaosResources(engine *chaosTypes.EngineInf
 		client.InNamespace(request.NamespacedName.Namespace),
 		client.MatchingLabels{"chaosUID": string(engine.Instance.UID)},
 		client.PropagationPolicy(metav1.DeletePropagationBackground),
-		client.GracePeriodSeconds(int64(0)),
 	}
 	var deleteEvent []string
 	var err []error
@@ -690,7 +689,7 @@ func (r *ReconcileChaosEngine) removeChaosResources(engine *chaosTypes.EngineInf
 			return reconcile.Result{}, err
 		}
 	}
-
+	//if err := r.client.Delete(context.TODO(),&corev1.Pod{},client.DeleteOptions{})
 	if errDeployment := r.client.DeleteAllOf(context.TODO(), &appsv1.Deployment{}, optsDelete...); errDeployment != nil {
 		err = append(err, errDeployment)
 		deleteEvent = append(deleteEvent, "Deployments, ")
