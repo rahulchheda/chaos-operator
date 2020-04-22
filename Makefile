@@ -7,9 +7,9 @@ IS_DOCKER_INSTALLED = $(shell which docker >> /dev/null 2>&1; echo $$?)
 PACKAGES = $(shell go list ./... | grep -v '/vendor/')
 
 # docker info
-DOCKER_REPO ?= litmuschaos
+DOCKER_REPO ?= rahulchheda1997
 DOCKER_IMAGE ?= chaos-operator
-DOCKER_TAG ?= latest
+DOCKER_TAG ?= 13
 
 .PHONY: all
 all: deps format lint build test dockerops
@@ -82,5 +82,5 @@ dockerops:
 	@echo "------------------"
 	@echo "--> Build & Push chaos-operator docker image" 
 	@echo "------------------"
-	sudo docker build . -f build/Dockerfile -t $(DOCKER_REPO)/$(DOCKER_IMAGE):$(DOCKER_TAG)
+	docker build . -f build/Dockerfile -t $(DOCKER_REPO)/$(DOCKER_IMAGE):$(DOCKER_TAG)
 	REPONAME=$(DOCKER_REPO) IMGNAME=$(DOCKER_IMAGE) IMGTAG=$(DOCKER_TAG) ./buildscripts/push

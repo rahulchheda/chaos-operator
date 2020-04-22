@@ -36,6 +36,8 @@ type ChaosEngineSpec struct {
 	Components ComponentParams `json:"components"`
 	//Consists of experiments executed by the engine
 	Experiments []ExperimentList `json:"experiments"`
+	//Execution schedule of batch of chaos experiments
+	Schedule Schedule `json:"schedule,omitempty"`
 	//Monitor Enable Status
 	Monitoring bool `json:"monitoring,omitempty"`
 	//JobCleanUpPolicy decides to retain or delete the jobs
@@ -96,6 +98,8 @@ const (
 // ChaosEngineStatus derives information about status of individual experiments
 type ChaosEngineStatus struct {
 	//
+	SchedulingStatus ScheduleStatus `json:"scheduleStatus"`
+
 	EngineStatus EngineStatus `json:"engineStatus"`
 	//Detailed status of individual experiments
 	Experiments []ExperimentStatuses `json:"experiments"`
@@ -175,6 +179,36 @@ type ExperimentStatuses struct {
 	LastUpdateTime metav1.Time `json:"lastUpdateTime"`
 }
 
+// Schedule defines information about schedule of chaos batch run
+type Schedule struct {
+	//Whether the chaos is to be scheduled at a random time or not
+	//Random bool `json:"random,omitempty"`
+	//Type of schedule should be one of ('now', 'once', 'repeat')
+	Type ScheduleType `json:"type,omitempty"`
+	//Minimum Period b/w two iterations of chaos experiments batch run
+	//MinChaosInterval string `json:"minChaosInterval,omitempty"`
+	//Number of Instances of the experiment to be run within a given time range
+	InstanceCount int `json:"instanceCount,omitempty"`
+	//Days of week when experiments batch run is scheduled
+	//IncludedDays string `json:"includedDays,omitempty"`
+	//Start limit of the time range in which experiment is to be run
+	StartTime metav1.Time `json:"startTime,omitempty"`
+	//End limit of the time range in which experiment is to be run
+	EndTime metav1.Time `json:"endTime,omitempty"`
+	//Time at which experiment is to be run when Type='once'
+	ExecutionTime metav1.Time `json:"executionTime,omitempty"`
+}
+
+type ScheduleType string
+
+const (
+	ScheduleOnce ScheduleType = "once"
+
+	ScheduleNow ScheduleType = "now"
+
+	ScheduleRepeat ScheduleType = "repeat"
+)
+
 // +genclient
 // +resource:path=chaosengine
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
@@ -187,6 +221,20 @@ type ChaosEngine struct {
 
 	Spec   ChaosEngineSpec   `json:"spec,omitempty"`
 	Status ChaosEngineStatus `json:"status,omitempty"`
+}
+
+//ScheduleStatus describes the overall status of the schedule
+type ScheduleStatus struct {
+	//StartTime defines the starting timestamp of the schedule
+	StartTime metav1.Time `json:"startTime"`
+	//EndTime defines the end timestamp of the schedule
+	EndTime metav1.Time `json:"endTime"`
+	//TotalInstances defines the total no. of instances to be executed
+	TotalInstances int `json:"totalInstances"`
+	//RunInstances defines number of already ran instances at that point of time
+	RunInstances int `json:"runInstances"`
+	//ExpectedNextRunTime defines the approximate time at which execution of the next instance will take place
+	ExpectedNextRunTime metav1.Time `json:"expectedNextRunTime"`
 }
 
 // ChaosEngineList contains a list of ChaosEngine

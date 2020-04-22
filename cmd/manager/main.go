@@ -23,6 +23,7 @@ import (
 	"os"
 	"runtime"
 	"strings"
+	"time"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	"github.com/operator-framework/operator-sdk/pkg/k8sutil"
@@ -146,7 +147,6 @@ func initializeMetricsService() (*rest.Config, string, error) {
 	if err != nil {
 		return cfg, "", err
 	}
-
 	namespace, err := k8sutil.GetWatchNamespace()
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to get watch namespace %v", err)
@@ -162,8 +162,9 @@ func initializeMetricsService() (*rest.Config, string, error) {
 
 func registerComponents(cfg *rest.Config, namespace string) (manager.Manager, error) {
 
+	reSyncPeriod := time.Second * 1
 	// Create a new Cmd to provide shared dependencies and start components
-	mgr, err := manager.New(cfg, manager.Options{Namespace: namespace, MetricsBindAddress: fmt.Sprintf("%s:%d", metricsHost, metricsPort)})
+	mgr, err := manager.New(cfg, manager.Options{Namespace: namespace, MetricsBindAddress: fmt.Sprintf("%s:%d", metricsHost, metricsPort), SyncPeriod: &reSyncPeriod})
 	if err != nil {
 		return mgr, err
 	}

@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/go-logr/logr"
 	"github.com/litmuschaos/elves/kubernetes/container"
@@ -570,28 +571,182 @@ func (r *ReconcileChaosEngine) initEngine(engine *chaosTypes.EngineInfo) error {
 
 // reconcileForCreationAndRunning reconciles for Chaos execution of Chaos Engine
 func (r *ReconcileChaosEngine) reconcileForCreationAndRunning(engine *chaosTypes.EngineInfo, reqLogger logr.Logger) (reconcile.Result, error) {
-
-	err := r.validateAnnontatedApplication(engine)
-	if err != nil {
-		return reconcile.Result{}, err
-	}
-
-	//Check if the engineRunner pod already exists, else create
-	err = r.checkEngineRunnerPod(engine, reqLogger)
-	if err != nil {
-		r.recorder.Eventf(engine.Instance, corev1.EventTypeWarning, "ChaosResourcesOperationFailed", "Unable to get chaos resources")
-		return reconcile.Result{}, err
-	}
-
-	isCompleted := r.checkRunnerPodCompletedStatus(engine)
-	if isCompleted {
-		err := r.updateEngineForComplete(engine, isCompleted)
+	reqLogger.Info("Type of Schedule", "schedulingType", engine.Instance.Spec.Schedule.Type)
+	//reqLogger.Info("Printing values for Schedule Struct:", "Value", engine.Instance.Spec.Schedule == litmuschaosv1alpha1.Schedule{})
+	if (engine.Instance.Spec.Schedule == litmuschaosv1alpha1.Schedule{}) {
+		// perform all normal steps, creation of runner, etc
+		err := r.validateAnnontatedApplication(engine)
 		if err != nil {
 			return reconcile.Result{}, err
 		}
+
+		//Check if the engineRunner pod already exists, else create
+		err = r.checkEngineRunnerPod(engine, reqLogger)
+		if err != nil {
+			r.recorder.Eventf(engine.Instance, corev1.EventTypeWarning, "ChaosResourcesOperationFailed", "Unable to get chaos resources")
+			return reconcile.Result{}, err
+		}
+
+		isCompleted := r.checkRunnerPodCompletedStatus(engine)
+		if isCompleted {
+			err := r.updateEngineForComplete(engine, isCompleted)
+			if err != nil {
+				return reconcile.Result{}, err
+			}
+		}
 	}
 
+	if engine.Instance.Spec.Schedule.Type == litmuschaosv1alpha1.ScheduleNow {
+		if (engine.Instance.Status.SchedulingStatus.TotalInstances == engine.Instance.Status.SchedulingStatus.RunInstances && engine.Instance.Status.SchedulingStatus != litmuschaosv1alpha1.ScheduleStatus{}) {
+			reqLogger.Info("Inside of type = NOW", "<<<<<<<<<<<<<<<<<<<", engine.Instance.Spec.Schedule.Type)
+			return reconcile.Result{}, nil
+		}
+		newInstance := *engine.Instance
+		newInstance.Spec.Schedule = litmuschaosv1alpha1.Schedule{}
+		newInstance.CreationTimestamp = metav1.Time{}
+		newInstance.ResourceVersion = ""
+		newInstance.SelfLink = ""
+		newInstance.UID = ""
+		newInstance.Status = litmuschaosv1alpha1.ChaosEngineStatus{}
+		//fill current values of scheduling status
+		engine.Instance.Status.SchedulingStatus.TotalInstances = 1
+		engine.Instance.Status.SchedulingStatus.RunInstances = 1
+		engine.Instance.Status.SchedulingStatus.ExpectedNextRunTime = metav1.Now()
+		//newInstance.SchedulingStatus = nil
+		newInstance.Name = fmt.Sprintf("%v-runid-now-%v", engine.Instance.Name, engine.Instance.Status.SchedulingStatus.RunInstances)
+		err := r.client.Update(context.TODO(), engine.Instance, &client.UpdateOptions{})
+		if err != nil {
+			return reconcile.Result{}, err
+		}
+		err = r.client.Create(context.TODO(), &newInstance, &client.CreateOptions{})
+		if err != nil {
+			return reconcile.Result{}, err
+		}
+		return reconcile.Result{}, nil
+
+	}
+
+	if engine.Instance.Spec.Schedule.Type == litmuschaosv1alpha1.ScheduleOnce {
+		if (engine.Instance.Status.SchedulingStatus.TotalInstances == engine.Instance.Status.SchedulingStatus.RunInstances && engine.Instance.Status.SchedulingStatus != litmuschaosv1alpha1.ScheduleStatus{}) {
+			reqLogger.Info("Inside of type = ONCE", "<<<<<<<<<<<<<<<<<<<", engine.Instance.Spec.Schedule.Type)
+			return reconcile.Result{}, nil
+		}
+		if (engine.Instance.Status.SchedulingStatus == litmuschaosv1alpha1.ScheduleStatus{}) {
+			engine.Instance.Status.SchedulingStatus.ExpectedNextRunTime = engine.Instance.Spec.Schedule.ExecutionTime
+			engine.Instance.Status.SchedulingStatus.RunInstances = 0
+			engine.Instance.Status.SchedulingStatus.TotalInstances = 1
+			engine.Instance.Status.SchedulingStatus.StartTime = metav1.Now()
+			r.client.Update(context.TODO(), engine.Instance, &client.UpdateOptions{})
+		}
+		currentTime := metav1.Now()
+		if engine.Instance.Status.SchedulingStatus.ExpectedNextRunTime.Before(&currentTime) {
+			engine.Instance.Status.SchedulingStatus = litmuschaosv1alpha1.ScheduleStatus{}
+			engine.Instance.Status.SchedulingStatus.RunInstances = 1
+			engine.Instance.Status.SchedulingStatus.TotalInstances = 1
+
+			newInstance := *engine.Instance
+			newInstance.Spec.Schedule = litmuschaosv1alpha1.Schedule{}
+			newInstance.CreationTimestamp = metav1.Time{}
+			newInstance.ResourceVersion = ""
+			newInstance.SelfLink = ""
+			newInstance.UID = ""
+			newInstance.Status = litmuschaosv1alpha1.ChaosEngineStatus{}
+			newInstance.Name = fmt.Sprintf("%v-runid-once-%v", engine.Instance.Name, engine.Instance.Status.SchedulingStatus.RunInstances)
+			err := r.client.Create(context.TODO(), &newInstance, &client.CreateOptions{})
+			if err != nil {
+				return reconcile.Result{}, err
+			}
+			engine.Instance.Status.SchedulingStatus.EndTime = metav1.Now()
+			err = r.client.Update(context.TODO(), engine.Instance, &client.UpdateOptions{})
+			if err != nil {
+				return reconcile.Result{}, err
+			}
+
+		} else {
+			return reconcile.Result{}, errors.New("Continue Reconcile, because time not reached yet")
+		}
+
+		return reconcile.Result{}, nil
+
+	}
+
+	if engine.Instance.Spec.Schedule.Type == litmuschaosv1alpha1.ScheduleRepeat {
+		if (engine.Instance.Status.SchedulingStatus.TotalInstances == engine.Instance.Status.SchedulingStatus.RunInstances && engine.Instance.Status.SchedulingStatus != litmuschaosv1alpha1.ScheduleStatus{}) {
+			reqLogger.Info("Inside of type = REPEAT", "<<<<<<<<<<<<<<<<<<<", engine.Instance.Spec.Schedule.Type)
+			return reconcile.Result{}, nil
+		}
+
+		if (engine.Instance.Status.SchedulingStatus == litmuschaosv1alpha1.ScheduleStatus{}) {
+			//engine.Instance.Status.SchedulingStatus.ExpectedNextRunTime = engine.Instance.Spec.Schedule.ExecutionTime
+			engine.Instance.Status.SchedulingStatus.RunInstances = 0
+			engine.Instance.Status.SchedulingStatus.TotalInstances = engine.Instance.Spec.Schedule.InstanceCount
+			engine.Instance.Status.SchedulingStatus.StartTime = engine.Instance.Spec.Schedule.StartTime
+			engine.Instance.Status.SchedulingStatus.EndTime = engine.Instance.Spec.Schedule.EndTime
+			engine.Instance.Status.SchedulingStatus.ExpectedNextRunTime = engine.Instance.Spec.Schedule.StartTime
+			r.client.Update(context.TODO(), engine.Instance, &client.UpdateOptions{})
+		}
+		currentTime := metav1.Now()
+		if engine.Instance.Status.SchedulingStatus.ExpectedNextRunTime.Before(&currentTime) {
+			engine.Instance.Status.SchedulingStatus.RunInstances++
+			engine.Instance.Status.SchedulingStatus.ExpectedNextRunTime = getNextInstanceTime(&engine.Instance.Spec.Schedule.StartTime, &engine.Instance.Spec.Schedule.EndTime, engine.Instance.Status.SchedulingStatus.RunInstances, engine.Instance.Spec.Schedule.InstanceCount)
+			newInstance := *engine.Instance
+			newInstance.Spec.Schedule = litmuschaosv1alpha1.Schedule{}
+			newInstance.CreationTimestamp = metav1.Time{}
+			newInstance.ResourceVersion = ""
+			newInstance.SelfLink = ""
+			newInstance.UID = ""
+			newInstance.Status = litmuschaosv1alpha1.ChaosEngineStatus{}
+			newInstance.Name = fmt.Sprintf("%v-runid-repeat-%v", engine.Instance.Name, engine.Instance.Status.SchedulingStatus.RunInstances)
+			err := r.client.Create(context.TODO(), &newInstance, &client.CreateOptions{})
+			if err != nil {
+				return reconcile.Result{}, err
+			}
+			if engine.Instance.Status.SchedulingStatus.RunInstances == engine.Instance.Status.SchedulingStatus.TotalInstances {
+				engine.Instance.Status.SchedulingStatus.EndTime = metav1.Now()
+			}
+			err = r.client.Update(context.TODO(), engine.Instance, &client.UpdateOptions{})
+			if err != nil {
+				return reconcile.Result{}, err
+			}
+
+		}
+	}
+
+	// // perform all normal steps, creation of runner, etc
+	// err := r.validateAnnontatedApplication(engine)
+	// if err != nil {
+	// 	return reconcile.Result{}, err
+	// }
+
+	// //Check if the engineRunner pod already exists, else create
+	// err = r.checkEngineRunnerPod(engine, reqLogger)
+	// if err != nil {
+	// 	r.recorder.Eventf(engine.Instance, corev1.EventTypeWarning, "ChaosResourcesOperationFailed", "Unable to get chaos resources")
+	// 	return reconcile.Result{}, err
+	// }
+
+	// isCompleted := r.checkRunnerPodCompletedStatus(engine)
+	// if isCompleted {
+	// 	err := r.updateEngineForComplete(engine, isCompleted)
+	// 	if err != nil {
+	// 		return reconcile.Result{}, err
+	// 	}
+	// }
+	//end here
+
 	return reconcile.Result{}, nil
+}
+
+func getNextInstanceTime(startTime *metav1.Time, endTime *metav1.Time, nextInstanceCount int, totalInstances int) metav1.Time {
+	diffTime := endTime.Sub(startTime.Time)
+	secondsDiffTime := diffTime.Seconds()
+	perEngineDiff := int(secondsDiffTime) / totalInstances
+	nextEngineDiff := perEngineDiff * nextInstanceCount
+	nextInstanceTime := startTime.Add(time.Second * time.Duration(nextEngineDiff))
+	return metav1.Time{
+		Time: nextInstanceTime,
+	}
+
 }
 
 // updateExperimentStatusesForStop updates ChaosEngine.Status.Experiment with Abort Status.
