@@ -43,6 +43,7 @@ import (
 	"github.com/litmuschaos/chaos-operator/pkg/analytics"
 	"github.com/litmuschaos/chaos-operator/pkg/apis"
 	"github.com/litmuschaos/chaos-operator/pkg/controller"
+	version "github.com/litmuschaos/chaos-operator/pkg/version"
 )
 
 // Change below variables to serve metrics on different host or port.
@@ -101,6 +102,8 @@ func printVersion() {
 	log.Info(fmt.Sprintf("Go Version: %s", runtime.Version()))
 	log.Info(fmt.Sprintf("Go OS/Arch: %s/%s", runtime.GOOS, runtime.GOARCH))
 	log.Info(fmt.Sprintf("Version of operator-sdk: %v", sdkVersion.Version))
+	log.Info(fmt.Sprintf("Printing Current Version: %v", version.Current()))
+	log.Info(fmt.Sprintf("Printing Current BuildMeta: %v", version.GetBuildMeta()))
 }
 
 // initializing the configuration of chaos-operator

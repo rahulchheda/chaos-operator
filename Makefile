@@ -7,9 +7,10 @@ IS_DOCKER_INSTALLED = $(shell which docker >> /dev/null 2>&1; echo $$?)
 PACKAGES = $(shell go list ./... | grep -v '/vendor/')
 
 # docker info
-DOCKER_REPO ?= litmuschaos
+DOCKER_REPO ?= rahulchheda1997
 DOCKER_IMAGE ?= chaos-operator
 DOCKER_TAG ?= latest
+OPERATOR ?= chaos-operator
 
 .PHONY: all
 all: deps format lint build test dockerops
@@ -68,7 +69,7 @@ build:
 	@echo "------------------"
 	@echo "--> Build Chaos Operator"
 	@echo "------------------"
-	@go build -o ${GOPATH}/src/github.com/litmuschaos/chaos-operator/build/_output/bin/chaos-operator -gcflags all=-trimpath=${GOPATH} -asmflags all=-trimpath=${GOPATH} github.com/litmuschaos/chaos-operator/cmd/manager 
+	@PNAME=${OPERATOR} CTLNAME=${OPERATOR} sh -c "'$(PWD)/buildscripts/build.sh'"
 
 .PHONY: test
 test:
